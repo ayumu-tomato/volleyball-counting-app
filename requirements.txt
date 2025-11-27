@@ -1,0 +1,5 @@
+﻿streamlit
+pandas
+matplotlib
+streamlit-image-coordinates
+XlsxWriter
