@@ -12,7 +12,7 @@ import xlsxwriter
 # ==========================================
 # 1. 設定 & JS制御
 # ==========================================
-st.set_page_config(page_title="Volleyball Scouter Ver.3.3", layout="wide")
+st.set_page_config(page_title="Volleyball Scouter Ver.3.4", layout="wide")
 
 st.markdown("""
 <style>
@@ -26,7 +26,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# 自動フォーカス
+# 自動フォーカス (JS)
 def focus_input():
     components.html(
         """
@@ -34,7 +34,7 @@ def focus_input():
             setTimeout(function() {
                 const inputs = window.parent.document.querySelectorAll('input[type="text"]');
                 if (inputs.length > 0) { inputs[inputs.length - 1].focus(); }
-            }, 200);
+            }, 300);
         </script>
         """, height=0
     )
@@ -44,8 +44,8 @@ defaults = {
     'stage': 0, 'roster_cursor': 0, 'temp_roster': [], 'scout_step': 0,
     'set_name': '1', 'video_url': '', 'liberos': [], 'rotation': [], 'score': [0, 0], 'phase': 'R',
     'current_input_data': {}, 'data_log': [], 'points': [], 'setter_counts': {},
-    # 入力リセット用キー (map_waitを追加)
-    'key_time': 0, 'key_skill': 0, 'key_player': 0, 'key_setter': 0, 'key_combo': 0, 'key_map': 0, 'key_quality': 0
+    # 入力リセット用キー
+    'key_time': 0, 'key_skill': 0, 'key_player': 0, 'key_setter': 0, 'key_combo': 0, 'key_quality': 0
 }
 for k, v in defaults.items():
     if k not in st.session_state: st.session_state[k] = v
@@ -55,12 +55,15 @@ for k, v in defaults.items():
 # ==========================================
 def get_zone(x, y, w, h):
     cx, cy = (x / w) * 9, (1 - (y / h)) * 18 
-    if 0 <= cy < 9: # 自コート
+    # 自コート (下半分: 0 <= Y < 9)
+    if 0 <= cy < 9:
         r, c = int(cy//3), int(cx//3)
+        # Back(0): 5,6,1 / Mid(1): 7,8,9 / Front(2): 4,3,2
         if r==0: return [5,6,1][c]
         if r==1: return [7,8,9][c]
         if r==2: return [4,3,2][c]
-    elif 9 <= cy <= 18: # 相手コート
+    # 相手コート (上半分: 9 <= Y <= 18)
+    elif 9 <= cy <= 18:
         is_front = (cy < 13.5)
         col_img = int(cx // 3)
         if is_front:
@@ -78,6 +81,12 @@ def create_court_img(points):
     ax.add_patch(patches.Rectangle((0, 0), 9, 18, fc='#FFCC99', ec='black', lw=2))
     ax.plot([0,9], [9,9], c='red', lw=3)
     ax.plot([0,9], [6,6], c='black', lw=1); ax.plot([0,9], [12,12], c='black', lw=1)
+    
+    # 相手コートのエリアガイド
+    ax.plot([0,9], [13.5, 13.5], c='gray', ls=':', lw=0.5)
+    ax.plot([3,3], [9,18], c='gray', ls=':', lw=0.5)
+    ax.plot([6,6], [9,18], c='gray', ls=':', lw=0.5)
+
     for i, p in enumerate(points):
         px, py = (p[0]/300)*9, (1-(p[1]/600))*18
         col = "blue" if i==0 else "red"
@@ -131,7 +140,6 @@ def reset_input_keys():
     st.session_state.key_player += 1
     st.session_state.key_setter += 1
     st.session_state.key_combo += 1
-    st.session_state.key_map += 1 # マップ用キーも更新
     st.session_state.key_quality += 1
 
 # ==========================================
@@ -142,9 +150,8 @@ def reset_input_keys():
 if st.session_state.stage == 0:
     st.markdown('<div class="instruction">Step 1: セット番号を入力</div>', unsafe_allow_html=True)
     def set_entered():
-        val = st.session_state.input_set
-        if val:
-            st.session_state.set_name = val
+        if st.session_state.input_set:
+            st.session_state.set_name = st.session_state.input_set
             st.session_state.stage = 1
     st.text_input("Set Number", key="input_set", on_change=set_entered)
     focus_input()
@@ -272,14 +279,20 @@ elif st.session_state.stage == 6:
         
         if val:
             p = (val['x'], val['y'])
+            # 連続クリックロジック
             if not st.session_state.points or st.session_state.points[-1] != p:
                 if len(st.session_state.points) < 2:
                     st.session_state.points.append(p)
+                    # ★修正: 2点クリックしたら自動でStep5へ進む
+                    if len(st.session_state.points) == 2:
+                        st.session_state.scout_step = 5
                     st.rerun()
                 else:
+                    # 3回目以降のクリックはリセットしてStart扱い
                     st.session_state.points = [p]
                     st.rerun()
-        st.caption("Startをタップ" if len(st.session_state.points)==0 else ("Endをタップ" if len(st.session_state.points)==1 else "OK"))
+                    
+        st.caption("Startをタップ" if len(st.session_state.points)==0 else ("Endをタップ" if len(st.session_state.points)==1 else "OK (Next)"))
 
     # --- Input Wizard ---
     with col_cmd:
@@ -373,17 +386,11 @@ elif st.session_state.stage == 6:
             st.text_input("Combo", key=f"in_combo_{st.session_state.key_combo}", on_change=combo_submit)
             focus_input()
 
-        # 4. Map Wait
+        # 4. Map Wait (★自動化のためスキップ表示のみ)
         elif st.session_state.scout_step == 4:
             st.markdown("##### 4. Map Input")
-            if len(st.session_state.points) == 2:
-                st.success("OK! Enterで次へ")
-                def map_done(): st.session_state.scout_step = 5
-                # ★修正: キーを動的にしてリセットを確実にする
-                st.text_input("Press Enter", key=f"map_wait_{st.session_state.key_map}", on_change=map_done)
-                focus_input()
-            else:
-                st.info("コート図を2回クリックしてください")
+            st.info("👈 左のコートを2回クリックしてください (Start -> End)")
+            # 2回クリックされると自動でStep5へ飛ぶため、ここは待ち状態
 
         # 5. Quality & Save
         elif st.session_state.scout_step == 5:
