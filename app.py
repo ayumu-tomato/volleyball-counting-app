@@ -1,5 +1,5 @@
 import streamlit as st
-import streamlit.components.v1 as components # JS実行用
+import streamlit.components.v1 as components
 import pandas as pd
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
@@ -12,9 +12,8 @@ import xlsxwriter
 # ==========================================
 # 1. 設定 & JS制御
 # ==========================================
-st.set_page_config(page_title="Volleyball Scouter Ver.3.1", layout="wide")
+st.set_page_config(page_title="Volleyball Scouter Ver.3.2", layout="wide")
 
-# CSS
 st.markdown("""
 <style>
     .instruction { font-size: 24px; font-weight: bold; color: #1f77b4; margin-bottom: 10px; }
@@ -27,22 +26,17 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# ★自動フォーカス用関数 (JavaScript注入)
+# 自動フォーカス
 def focus_input():
     components.html(
         """
         <script>
-            // 少し待ってから実行（DOM描画待ち）
             setTimeout(function() {
                 const inputs = window.parent.document.querySelectorAll('input[type="text"]');
-                // 最後の入力欄（＝現在メインエリアに表示されている入力欄）にフォーカス
-                if (inputs.length > 0) {
-                    inputs[inputs.length - 1].focus();
-                }
+                if (inputs.length > 0) { inputs[inputs.length - 1].focus(); }
             }, 200);
         </script>
-        """,
-        height=0,
+        """, height=0
     )
 
 # セッション初期化
@@ -132,7 +126,6 @@ def update_score(skill, quality):
         st.toast("Opponent Point.", icon="❌")
 
 def reset_input_keys():
-    # 入力フォームをクリアするためのキー更新
     st.session_state.key_time += 1
     st.session_state.key_skill += 1
     st.session_state.key_player += 1
@@ -148,11 +141,12 @@ def reset_input_keys():
 if st.session_state.stage == 0:
     st.markdown('<div class="instruction">Step 1: セット番号を入力</div>', unsafe_allow_html=True)
     def set_entered():
-        if st.session_state.input_set:
-            st.session_state.set_name = st.session_state.input_set
+        val = st.session_state.input_set
+        if val:
+            st.session_state.set_name = val
             st.session_state.stage = 1
     st.text_input("Set Number", key="input_set", on_change=set_entered)
-    focus_input() # ★自動フォーカス
+    focus_input()
 
 # --- Stage 1: URL Input ---
 elif st.session_state.stage == 1:
@@ -168,7 +162,7 @@ elif st.session_state.stage == 1:
 # --- Stage 2: Roster ---
 elif st.session_state.stage == 2:
     idx = st.session_state.roster_cursor
-    pos_name = ["1 (Server/Back-R)", "6 (Back-C)", "5 (Back-L)", "4 (Front-L)", "3 (Front-C)", "2 (Front-R)"][idx]
+    pos_name = ["1 (Server/Back-R)", "6 (Back-C)", "5 (Back-L)", "4 (Front-L)", "3 (Front-C)", "2 (Front-Right)"][idx]
     st.markdown(f'<div class="instruction">Step 3: スタメン入力 ({idx+1}/6)</div>', unsafe_allow_html=True)
     st.info(f"ポジション: **{pos_name}** の選手名を入力")
     
@@ -180,7 +174,7 @@ elif st.session_state.stage == 2:
                 st.session_state.roster_cursor += 1
             else:
                 st.session_state.stage = 3
-        st.session_state.input_player_reg = "" # Clear
+        st.session_state.input_player_reg = ""
 
     st.text_input("Player Name", key="input_player_reg", on_change=player_entered)
     if st.session_state.temp_roster: st.write("入力済み:", st.session_state.temp_roster)
@@ -246,7 +240,6 @@ elif st.session_state.stage == 6:
     with c2: 
         st.markdown(f'<div class="score-board">{st.session_state.score[0]} - {st.session_state.score[1]}</div>', unsafe_allow_html=True)
         st.markdown(f"<h3 style='text-align:center'>Phase: {st.session_state.phase}</h3>", unsafe_allow_html=True)
-        # 簡易スコア操作
         c_up, c_down = st.columns(2)
         if c_up.button("↑ My Pt"):
             st.session_state.score[0] += 1; st.session_state.phase = 'S'; rotate_team(); st.rerun()
@@ -295,11 +288,13 @@ elif st.session_state.stage == 6:
         if st.session_state.scout_step == 0:
             st.markdown("##### 1. Time (例: 0513 -> 05:13)")
             def time_submit():
-                t = format_time(st.session_state.in_time)
+                # ★修正: dynamic keyから値を取得
+                k = f"in_time_{st.session_state.key_time}"
+                t = format_time(st.session_state[k])
                 st.session_state.current_input_data['time'] = t
                 st.session_state.scout_step = 1
             st.text_input("Time", key=f"in_time_{st.session_state.key_time}", on_change=time_submit)
-            focus_input() # ★フォーカス
+            focus_input()
 
         # 2. Skill
         elif st.session_state.scout_step == 1:
@@ -308,13 +303,13 @@ elif st.session_state.stage == 6:
             for k,v in skills.items(): st.write(f"**{k}**: {v}")
             
             def skill_submit():
-                val = st.session_state.in_skill
+                k = f"in_skill_{st.session_state.key_skill}"
+                val = st.session_state[k]
                 s_map = {"1":"S", "2":"R", "3":"A", "4":"B", "5":"D", "6":"E"}
                 if val in s_map:
                     skill = s_map[val]
                     st.session_state.current_input_data['skill'] = skill
-                    
-                    if skill == 'S': # サーバー自動選択
+                    if skill == 'S': # Server Auto
                         st.session_state.current_input_data['player'] = st.session_state.rotation[0]
                         st.session_state.current_input_data['setter'] = ""
                         st.session_state.current_input_data['combo'] = ""
@@ -324,7 +319,7 @@ elif st.session_state.stage == 6:
                     else:
                         st.session_state.scout_step = 2
             st.text_input("Choice", key=f"in_skill_{st.session_state.key_skill}", on_change=skill_submit)
-            focus_input() # ★フォーカス
+            focus_input()
 
         # 3. Player
         elif st.session_state.scout_step == 2:
@@ -333,8 +328,9 @@ elif st.session_state.stage == 6:
             for i, p in enumerate(cand): st.write(f"**{i+1}**: {p}")
             
             def player_submit():
+                k = f"in_player_{st.session_state.key_player}"
                 try:
-                    idx = int(st.session_state.in_player) - 1
+                    idx = int(st.session_state[k]) - 1
                     if 0 <= idx < len(cand):
                         st.session_state.current_input_data['player'] = cand[idx]
                         if st.session_state.current_input_data['skill'] == 'A':
@@ -354,8 +350,9 @@ elif st.session_state.stage == 6:
             for i, s in enumerate(setters): st.write(f"**{i+1}**: {s}")
             
             def setter_submit():
+                k = f"in_setter_{st.session_state.key_setter}"
                 try:
-                    idx = int(st.session_state.in_setter) - 1
+                    idx = int(st.session_state[k]) - 1
                     if 0 <= idx < len(setters):
                         s_name = setters[idx]
                         st.session_state.current_input_data['setter'] = s_name
@@ -370,7 +367,8 @@ elif st.session_state.stage == 6:
         elif st.session_state.scout_step == 3:
             st.markdown("##### 3.8 Combo (e.g. X5, 1, A)")
             def combo_submit():
-                st.session_state.current_input_data['combo'] = st.session_state.in_combo
+                k = f"in_combo_{st.session_state.key_combo}"
+                st.session_state.current_input_data['combo'] = st.session_state[k]
                 st.session_state.scout_step = 4
             st.text_input("Combo", key=f"in_combo_{st.session_state.key_combo}", on_change=combo_submit)
             focus_input()
@@ -392,7 +390,8 @@ elif st.session_state.stage == 6:
             qs = [{"k":"1","v":"#","d":"Perfect"},{"k":"2","v":"\"","d":"Good"},{"k":"3","v":"!","d":"OK"},{"k":"4","v":"-","d":"Poor"},{"k":"5","v":"^","d":"Error"},{"k":"6","v":"T","d":"BlockOut"}]
             
             def qual_submit():
-                val = st.session_state.in_qual
+                k_q = f"in_qual_{st.session_state.key_quality}"
+                val = st.session_state[k_q]
                 q_map = {q['k']: q['v'] for q in qs}
                 if val in q_map:
                     q_val = q_map[val]
@@ -420,7 +419,7 @@ elif st.session_state.stage == 6:
                     st.session_state.points = []
                     st.session_state.current_input_data = {}
                     st.session_state.scout_step = 0
-                    reset_input_keys() # Input ID更新してクリア
+                    reset_input_keys() # ID更新してクリア
             
             for q in qs: st.write(f"**{q['k']}**: {q['v']} ({q['d']})")
             st.text_input("Choice", key=f"in_qual_{st.session_state.key_quality}", on_change=qual_submit)
