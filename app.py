@@ -11,7 +11,7 @@ import xlsxwriter
 # ==========================================
 # 1. 設定 & CSS
 # ==========================================
-st.set_page_config(page_title="Volleyball Scouter Ver.2.1", layout="wide")
+st.set_page_config(page_title="Volleyball Scouter Ver.2.2", layout="wide")
 
 st.markdown("""
 <style>
@@ -27,7 +27,6 @@ st.markdown("""
         background-color: #f8f9fa; font-size: 13px; line-height: 1.4;
         height: 200px; overflow-y: auto;
     }
-    .legend-title { font-weight: bold; border-bottom: 1px solid #ddd; margin-bottom: 5px;}
     .rot-container {
         display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 5px;
         background-color: #eef; padding: 5px; border-radius: 5px;
@@ -37,8 +36,11 @@ st.markdown("""
         background-color: white; border: 2px solid #333; border-radius: 5px; padding: 8px 2px;
     }
     .rot-front { background-color: #ffcccc; }
-    .rot-server { border: 3px solid red; color: red; }
+    .rot-server { border: 3px solid red; color: red; font-weight: 900; }
     div.stButton > button { width: 100%; font-weight: bold; height: 50px; }
+    
+    /* 確認ボタンを目立たせる */
+    .confirm-btn { border: 2px solid red !important; color: red !important; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -48,6 +50,7 @@ st.markdown("""
 if 'data_log' not in st.session_state: st.session_state.data_log = []
 if 'score' not in st.session_state: st.session_state.score = [0, 0]
 if 'phase' not in st.session_state: st.session_state.phase = 'R'
+# ローテーション [Pos1(Server), Pos6, Pos5, Pos4, Pos3, Pos2]
 if 'rotation' not in st.session_state: 
     st.session_state.rotation = ["Sekita(#8)", "Nishida(#1)", "Onodera(#2)", "Ishikawa(#14)", "Yamauchi(#6)", "R.Takahashi(#12)"]
 if 'liberos' not in st.session_state:
@@ -57,17 +60,31 @@ if 'points' not in st.session_state: st.session_state.points = []
 if 'time_key' not in st.session_state: st.session_state.time_key = 0
 if 'combo_key' not in st.session_state: st.session_state.combo_key = 0
 
+# 確認状態フラグ
+if 'reset_confirm' not in st.session_state: st.session_state.reset_confirm = False
+if 'delete_confirm' not in st.session_state: st.session_state.delete_confirm = False
+
 # ==========================================
 # 3. 関数ロジック
 # ==========================================
 
 def format_time_input(val):
     if not val: return ""
-    val = str(val).strip()
-    if ":" in val: return val
-    if len(val) == 4 and val.isdigit(): return f"{val[:2]}:{val[2:]}"
-    if len(val) == 3 and val.isdigit(): return f"0{val[:1]}:{val[1:]}"
-    return val
+    s = str(val).strip().replace(':', '') # コロンがあれば除去して再処理
+    if not s.isdigit(): return val # 数字以外ならそのまま返す
+    
+    v = int(s)
+    # 文字列長と数値に基づいてMM:SSに変換
+    # 8 -> 00:08, 19 -> 00:19, 345 -> 03:45, 1234 -> 12:34
+    
+    # 文字列として扱う
+    s_str = str(v)
+    if len(s_str) <= 2: # 秒のみ (例: 8, 59)
+        return f"00:{v:02d}"
+    else: # 分と秒 (例: 105 -> 1:05, 1234 -> 12:34)
+        sec = int(s_str[-2:])
+        min_ = int(s_str[:-2])
+        return f"{min_:02d}:{sec:02d}"
 
 def time_to_sec(time_str):
     try:
@@ -75,12 +92,14 @@ def time_to_sec(time_str):
         if ':' in t:
             m, s = t.split(':')
             return int(m) * 60 + int(s)
-        return int(t)
+        return 0
     except:
         return 0
 
 def rotate_team():
     rot = st.session_state.rotation
+    # 時計回り: [1, 6, 5, 4, 3, 2] -> [2, 1, 6, 5, 4, 3]
+    # 末尾(Pos2)を先頭(Pos1)へ移動
     st.session_state.rotation = [rot[-1]] + rot[:-1]
 
 def get_sorted_setters():
@@ -175,7 +194,6 @@ def register_data(quality):
 
     if skill == 'A': count_setter_usage(setter)
 
-    # ログ保存 (内部用キー名で保存)
     new_row = {
         "set": st.session_state.set_name,
         "score": current_score,
@@ -188,12 +206,11 @@ def register_data(quality):
         "start_zone": s_z,
         "end_zone": e_z,
         "memo": "", 
-        "video_url": st.session_state.video_url, # L列 (Video_URL)
-        "video_time": time_to_sec(time_val)      # M列 (Time_Sec)
+        "video_url": st.session_state.video_url,
+        "video_time": time_to_sec(time_val)
     }
     st.session_state.data_log.append(new_row)
     
-    # 自動更新ロジック
     is_my_point = False
     is_op_point = False
     
@@ -266,18 +283,32 @@ with c_rot:
     """
     st.markdown(rot_html, unsafe_allow_html=True)
     
-    with st.expander("詳細設定"):
+    with st.expander("詳細設定 & リセット"):
         st.session_state.set_name = st.text_input("Set (A列)", "1")
         st.session_state.video_url = st.text_input("URL (L列)", "https://")
+        
         rot_csv = st.text_input("Start Rot (comma sep)", ",".join(st.session_state.rotation))
         if st.button("Set Rotation"):
             st.session_state.rotation = [x.strip() for x in rot_csv.split(',')]
         
         start_ph = st.radio("Start Phase", ["Serve (My)", "Reception (Op)"])
-        if st.button("Reset Game"):
-            st.session_state.score = [0, 0]
-            st.session_state.phase = 'S' if "Serve" in start_ph else 'R'
-            st.rerun()
+        
+        # --- Reset 確認ロジック ---
+        if st.button("Reset Game (ALL CLEAR)"):
+            st.session_state.reset_confirm = True
+        
+        if st.session_state.reset_confirm:
+            st.warning("⚠️ 全データを消去してリセットしますか？")
+            col_yes, col_no = st.columns(2)
+            if col_yes.button("はい (Yes)"):
+                st.session_state.score = [0, 0]
+                st.session_state.phase = 'S' if "Serve" in start_ph else 'R'
+                st.session_state.data_log = []
+                st.session_state.reset_confirm = False
+                st.rerun()
+            if col_no.button("いいえ (No)"):
+                st.session_state.reset_confirm = False
+                st.rerun()
 
 st.divider()
 
@@ -303,14 +334,26 @@ with col_map:
 
 with col_input:
     st.markdown("##### Input")
-    st.session_state.input_time = st.text_input("4. Time (XXXX)", key=f"time_{st.session_state.time_key}")
+    st.session_state.input_time = st.text_input("4. Time (ex. 0513)", key=f"time_{st.session_state.time_key}")
     
     skill_opts = ["R", "A", "S", "B", "D", "E"]
+    # 5. Skill
     st.session_state.input_skill = st.selectbox("5. Skill", skill_opts)
     
+    # 6. Player (Skill=Sなら自動的にServerを選択)
     active_players = st.session_state.rotation + [l for l in st.session_state.liberos if l]
-    st.session_state.input_player = st.selectbox("6. Player", active_players)
     
+    # デフォルトの選択インデックスを決める
+    default_idx = 0
+    if st.session_state.input_skill == 'S':
+        # サーバーは rotation[0]
+        server_name = st.session_state.rotation[0]
+        if server_name in active_players:
+            default_idx = active_players.index(server_name)
+    
+    st.session_state.input_player = st.selectbox("6. Player", active_players, index=default_idx)
+    
+    # Setter / Combo
     if st.session_state.input_skill == 'A':
         sorted_setters = get_sorted_setters()
         st.session_state.input_setter = st.selectbox("Setter", sorted_setters)
@@ -354,6 +397,25 @@ with c_sub:
 
 with c_table:
     st.markdown("#### Recorded Data")
+    
+    # --- Undo (Delete Last) 確認ロジック ---
+    if st.button("🗑️ Delete Last Row"):
+        if len(st.session_state.data_log) > 0:
+            st.session_state.delete_confirm = True
+        else:
+            st.toast("No data to delete", icon="⚠️")
+    
+    if st.session_state.delete_confirm:
+        st.warning("⚠️ 最新の1行を削除しますか？")
+        col_dy, col_dn = st.columns(2)
+        if col_dy.button("はい (Delete)"):
+            st.session_state.data_log.pop() # 末尾削除
+            st.session_state.delete_confirm = False
+            st.rerun()
+        if col_dn.button("いいえ (Cancel)"):
+            st.session_state.delete_confirm = False
+            st.rerun()
+
     if len(st.session_state.data_log) > 0:
         df = pd.DataFrame(st.session_state.data_log)
         edited_df = st.data_editor(df, num_rows="dynamic", height=250, use_container_width=True)
@@ -362,23 +424,15 @@ with c_table:
         st.markdown("### 11. FINISH")
         cd1, cd2 = st.columns(2)
         
-        # 出力前に列名を指定のものに変更
-        # A:set, B:score, C:phase, D:setter, E:player, F:skill, G:combo, H:quality, I:start_zone, J:end_zone, 
-        # K:ブランク(memo), L:Video_URL, M:Time_Sec
+        # 列名変更 (L, M列対応)
+        export_df = edited_df.copy()
+        export_df.rename(columns={"video_url": "Video_URL", "video_time": "Time_Sec"}, inplace=True)
         
-        export_df = df.copy()
-        export_df.rename(columns={
-            "video_url": "Video_URL",
-            "video_time": "Time_Sec"
-        }, inplace=True)
-        
-        # Excel
         buf = io.BytesIO()
         with pd.ExcelWriter(buf, engine='xlsxwriter') as writer:
             export_df.to_excel(writer, index=False, sheet_name='Sheet1')
         cd1.download_button("Download .xlsx", buf.getvalue(), "scouting.xlsx", "application/vnd.ms-excel")
         
-        # CSV
         csv = export_df.to_csv(index=False).encode('utf-8')
         cd2.download_button("Download .csv", csv, "scouting.csv", "text/csv")
     else:
