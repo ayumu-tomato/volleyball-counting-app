@@ -12,7 +12,7 @@ import xlsxwriter
 # ==========================================
 # 1. 設定 & JS制御
 # ==========================================
-st.set_page_config(page_title="Volleyball Scouter Ver.3.2", layout="wide")
+st.set_page_config(page_title="Volleyball Scouter Ver.3.3", layout="wide")
 
 st.markdown("""
 <style>
@@ -44,8 +44,8 @@ defaults = {
     'stage': 0, 'roster_cursor': 0, 'temp_roster': [], 'scout_step': 0,
     'set_name': '1', 'video_url': '', 'liberos': [], 'rotation': [], 'score': [0, 0], 'phase': 'R',
     'current_input_data': {}, 'data_log': [], 'points': [], 'setter_counts': {},
-    # 入力リセット用キー
-    'key_time': 0, 'key_skill': 0, 'key_player': 0, 'key_setter': 0, 'key_combo': 0, 'key_quality': 0
+    # 入力リセット用キー (map_waitを追加)
+    'key_time': 0, 'key_skill': 0, 'key_player': 0, 'key_setter': 0, 'key_combo': 0, 'key_map': 0, 'key_quality': 0
 }
 for k, v in defaults.items():
     if k not in st.session_state: st.session_state[k] = v
@@ -131,6 +131,7 @@ def reset_input_keys():
     st.session_state.key_player += 1
     st.session_state.key_setter += 1
     st.session_state.key_combo += 1
+    st.session_state.key_map += 1 # マップ用キーも更新
     st.session_state.key_quality += 1
 
 # ==========================================
@@ -288,7 +289,6 @@ elif st.session_state.stage == 6:
         if st.session_state.scout_step == 0:
             st.markdown("##### 1. Time (例: 0513 -> 05:13)")
             def time_submit():
-                # ★修正: dynamic keyから値を取得
                 k = f"in_time_{st.session_state.key_time}"
                 t = format_time(st.session_state[k])
                 st.session_state.current_input_data['time'] = t
@@ -379,7 +379,8 @@ elif st.session_state.stage == 6:
             if len(st.session_state.points) == 2:
                 st.success("OK! Enterで次へ")
                 def map_done(): st.session_state.scout_step = 5
-                st.text_input("Press Enter", key="map_wait", on_change=map_done)
+                # ★修正: キーを動的にしてリセットを確実にする
+                st.text_input("Press Enter", key=f"map_wait_{st.session_state.key_map}", on_change=map_done)
                 focus_input()
             else:
                 st.info("コート図を2回クリックしてください")
