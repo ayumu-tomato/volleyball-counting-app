@@ -13,79 +13,85 @@ import time
 # ==========================================
 # 1. 設定 & JS制御
 # ==========================================
-st.set_page_config(page_title="Volleyball Scouter Ver.4.0", layout="wide")
+st.set_page_config(page_title="Volleyball Scouter Ver.3.8", layout="wide")
 
-# CSS: 省スペース化
 st.markdown("""
 <style>
-    /* 全体の余白を詰める */
-    .block-container { padding-top: 1rem; padding-bottom: 1rem; }
-    
-    .instruction { font-size: 20px; font-weight: bold; color: #1f77b4; margin-bottom: 5px; }
-    .score-board { 
-        font-size: 40px; font-weight: 900; text-align: center; 
-        background: #333; color: white; padding: 0px; border-radius: 8px; 
-    }
-    .input-area { border: 2px solid #1f77b4; padding: 15px; border-radius: 10px; background-color: white; }
-    
-    /* ローテーション表をコンパクトに */
-    .rot-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 2px; text-align: center; font-weight: bold; font-size: 12px; }
-    .rot-cell { border: 1px solid #555; padding: 5px; background: white; border-radius: 4px; }
+    .instruction { font-size: 24px; font-weight: bold; color: #1f77b4; margin-bottom: 10px; }
+    .score-board { font-size: 50px; font-weight: 900; text-align: center; background: #333; color: white; padding: 10px; border-radius: 10px; }
+    .input-area { border: 2px solid #1f77b4; padding: 20px; border-radius: 10px; background-color: white; }
+    .rot-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 5px; text-align: center; font-weight: bold; }
+    .rot-cell { border: 2px solid #555; padding: 10px; background: white; border-radius: 5px; }
     .rot-front { background: #ffebeb; }
-    .rot-server { border-color: red; color: red; border-width: 2px; }
-    
-    /* 判例を小さく */
-    .legend-box { font-size: 11px; line-height: 1.2; border: 1px solid #ddd; padding: 5px; background: #f9f9f9; }
+    .rot-server { border-color: red; color: red; }
 </style>
 """, unsafe_allow_html=True)
 
-# ★自動フォーカス (強力版)
+# ★自動フォーカス (ポーリング版)
+# 画面更新後、入力欄が見つかるまで繰り返しフォーカスを試みる
 def focus_input():
     ts = str(time.time())
     components.html(
         f"""
         <script>
-            setTimeout(function() {{
+            // ユニークID: {ts}
+            let attempts = 0;
+            const maxAttempts = 20; // 最大2秒間試行
+            
+            const interval = setInterval(function() {{
                 const doc = window.parent.document;
                 const inputs = doc.querySelectorAll('input[type="text"]');
+                
+                // フォーカス対象のラベルリスト
                 const targetLabels = [
                     "Time", "Choice", "Skill Number", "Player Number", "Setter Number",
-                    "Combo", "Press Enter", "Set Number", "YouTube URL", "Player Name", "Libero Name", "Names (comma separated)"
+                    "Combo", "Press Enter",
+                    "Set Number", "YouTube URL", "Player Name", "Libero Name", "Names (comma separated)"
                 ];
-                let found = false;
+                
+                let target = null;
+                
+                // 優先度の高いラベルを持つ入力欄を探す
                 for (let i = 0; i < inputs.length; i++) {{
                     const label = inputs[i].getAttribute('aria-label');
                     if (label && (label === "Choice" || targetLabels.includes(label))) {{
-                        inputs[i].focus();
-                        found = true;
-                        break; 
+                        target = inputs[i];
+                        break;
                     }}
                 }}
-                if (!found && inputs.length > 0) {{ inputs[inputs.length - 1].focus(); }}
-            }}, 300);
-        </script>
-        """, height=0
-    )
-
-# ★ショートカット (Shift+Arrow)
-def inject_shortcuts():
-    components.html(
-        """
-        <script>
-            const doc = window.parent.document;
-            doc.addEventListener('keydown', function(e) {
-                if (e.shiftKey) {
-                    if (e.key === 'ArrowUp') {
-                        const buttons = Array.from(doc.querySelectorAll('button'));
+                
+                // 見つからなければ最後の入力欄
+                if (!target && inputs.length > 0) {{
+                    target = inputs[inputs.length - 1];
+                }}
+                
+                if (target) {{
+                    target.focus();
+                    // フォーカスが当たっているか確認（activeElement）
+                    if (doc.activeElement === target) {{
+                        clearInterval(interval); // 成功したら停止
+                    }}
+                }}
+                
+                attempts++;
+                if (attempts >= maxAttempts) clearInterval(interval); // タイムアウト
+                
+            }}, 100); // 0.1秒ごとに実行
+            
+            // ショートカットキー設定 (Shift + Arrow)
+            window.parent.document.addEventListener('keydown', function(e) {{
+                if (e.shiftKey) {{
+                    if (e.key === 'ArrowUp') {{
+                        const buttons = Array.from(window.parent.document.querySelectorAll('button'));
                         const target = buttons.find(el => el.innerText.includes('↑ My Pt'));
-                        if (target) { target.click(); e.preventDefault(); e.stopPropagation(); }
-                    } else if (e.key === 'ArrowDown') {
-                        const buttons = Array.from(doc.querySelectorAll('button'));
+                        if (target) {{ target.click(); e.preventDefault(); }}
+                    }} else if (e.key === 'ArrowDown') {{
+                        const buttons = Array.from(window.parent.document.querySelectorAll('button'));
                         const target = buttons.find(el => el.innerText.includes('↓ Op Pt'));
-                        if (target) { target.click(); e.preventDefault(); e.stopPropagation(); }
-                    }
-                }
-            });
+                        if (target) {{ target.click(); e.preventDefault(); }}
+                    }}
+                }}
+            }});
         </script>
         """, height=0
     )
@@ -95,12 +101,11 @@ defaults = {
     'stage': 0, 'roster_cursor': 0, 'temp_roster': [], 'scout_step': 0,
     'set_name': '1', 'video_url': '', 'liberos': [], 'rotation': [], 'score': [0, 0], 'phase': 'R',
     'current_input_data': {}, 'data_log': [], 'points': [], 'setter_counts': {},
+    # 入力リセット用キー
     'key_time': 0, 'key_skill': 0, 'key_player': 0, 'key_setter': 0, 'key_combo': 0, 'key_quality': 0
 }
 for k, v in defaults.items():
     if k not in st.session_state: st.session_state[k] = v
-
-inject_shortcuts()
 
 # ==========================================
 # 2. ロジック関数
@@ -109,30 +114,32 @@ def get_zone(x, y, w, h):
     cx, cy = (x / w) * 9, (1 - (y / h)) * 18 
     if 0 <= cy < 9: # 自コート
         r, c = int(cy//3), int(cx//3)
-        if r==0: return [5,6,1][c] # Back
-        if r==1: return [7,8,9][c] # Mid
-        if r==2: return [4,3,2][c] # Front
+        if r==0: return [5,6,1][c]
+        if r==1: return [7,8,9][c]
+        if r==2: return [4,3,2][c]
     elif 9 <= cy <= 18: # 相手コート
         is_front = (cy < 13.5)
         col_img = int(cx // 3)
-        if is_front: return [2,3,4][col_img]
-        else: return [1,6,5][col_img]
+        if is_front:
+            if col_img == 0: return 2
+            if col_img == 1: return 3
+            if col_img == 2: return 4
+        else:
+            if col_img == 0: return 1
+            if col_img == 1: return 6
+            if col_img == 2: return 5
     return 0
 
 def create_court_img(points):
-    # 画像生成サイズを小さく調整
-    fig, ax = plt.subplots(figsize=(3, 6)) # figsizeを小さく
+    # サイズ調整 (230x460)
+    fig, ax = plt.subplots(figsize=(3, 6))
     ax.add_patch(patches.Rectangle((0, 0), 9, 18, fc='#FFCC99', ec='black', lw=2))
     ax.plot([0,9], [9,9], c='red', lw=3)
     ax.plot([0,9], [6,6], c='black', lw=1); ax.plot([0,9], [12,12], c='black', lw=1)
-    
-    # 相手コートガイド
     ax.plot([0,9], [13.5, 13.5], c='gray', ls=':', lw=0.5)
     ax.plot([3,3], [9,18], c='gray', ls=':', lw=0.5); ax.plot([6,6], [9,18], c='gray', ls=':', lw=0.5)
 
     for i, p in enumerate(points):
-        # 描画用座標変換 (Click座標 -> コート座標)
-        # ※ここでの分母(230, 460)は、streamlit_image_coordinatesのwidth/heightと一致させる必要がある
         px, py = (p[0]/230)*9, (1-(p[1]/460))*18
         col = "blue" if i==0 else "red"
         lbl = "S" if i==0 else "E"
@@ -180,13 +187,16 @@ def update_score(skill, quality):
         st.toast("Opponent Point.", icon="❌")
 
 def reset_input_keys():
-    for k in ['key_time', 'key_skill', 'key_player', 'key_setter', 'key_combo', 'key_quality']:
-        st.session_state[k] += 1
+    st.session_state.key_time += 1
+    st.session_state.key_skill += 1
+    st.session_state.key_player += 1
+    st.session_state.key_setter += 1
+    st.session_state.key_combo += 1
+    st.session_state.key_quality += 1
 
 def commit_record(quality, winner=None):
     curr = st.session_state.current_input_data
     s_z, e_z = "", ""
-    # 座標変換時のサイズ指定 (width=230, height=460)
     if len(st.session_state.points)>=1: s_z = get_zone(st.session_state.points[0][0], st.session_state.points[0][1], 230, 460)
     if len(st.session_state.points)>=2: e_z = get_zone(st.session_state.points[1][0], st.session_state.points[1][1], 230, 460)
     
@@ -245,7 +255,7 @@ elif st.session_state.stage == 1:
 # --- Stage 2: Roster ---
 elif st.session_state.stage == 2:
     idx = st.session_state.roster_cursor
-    pos_name = ["1 (Back-R)", "6 (Back-C)", "5 (Back-L)", "4 (Front-L)", "3 (Front-C)", "2 (Front-R)"][idx]
+    pos_name = ["1 (Back-R)", "6 (Back-C)", "5 (Back-L)", "4 (Front-L)", "3 (Front-C)", "2 (Front-Right)"][idx]
     st.markdown(f'<div class="instruction">Step 3: Lineup ({idx+1}/6) : {pos_name}</div>', unsafe_allow_html=True)
     
     def player_entered():
@@ -315,11 +325,9 @@ elif st.session_state.stage == 5:
 # ==========================================
 elif st.session_state.stage == 6:
     
-    # --- Header (Compact) ---
-    c_left, c_mid, c_right = st.columns([0.8, 1.2, 1.0]) # カラム比率調整
+    c_left, c_mid, c_right = st.columns([0.8, 1.2, 1.0])
     
     with c_left:
-        # 判例
         st.markdown("""
         <div class="legend-box">
         <b>R:</b> #:A, ":B, !:C, -:D, ^:Err<br>
@@ -329,7 +337,6 @@ elif st.session_state.stage == 6:
         
     with c_mid:
         st.markdown(f'<div class="score-board">{st.session_state.score[0]}-{st.session_state.score[1]} ({st.session_state.phase})</div>', unsafe_allow_html=True)
-        # 隠しボタン (Shift+Arrow用)
         b1, b2 = st.columns(2)
         if b1.button("↑ My Pt (Shift+↑)"): commit_record("#", winner='my')
         if b2.button("↓ Op Pt (Shift+↓)"): commit_record("^", winner='op')
@@ -349,12 +356,11 @@ elif st.session_state.stage == 6:
 
     st.markdown("---")
 
-    col_map, col_cmd = st.columns([0.8, 1.5]) # マップを狭く、入力を広く
+    col_map, col_cmd = st.columns([0.8, 1.5])
     
-    # --- Map (Compact) ---
+    # --- Map ---
     with col_map:
         st.markdown("**Map**")
-        # ★画像を小さく (width=230)
         court_img = create_court_img(st.session_state.points)
         val = streamlit_image_coordinates(court_img, key="main_court", width=230, height=460)
         
@@ -363,7 +369,6 @@ elif st.session_state.stage == 6:
             if not st.session_state.points or st.session_state.points[-1] != p:
                 if len(st.session_state.points) < 2:
                     st.session_state.points.append(p)
-                    # 2点クリックしたら自動でStep5へ
                     if len(st.session_state.points) == 2:
                         st.session_state.scout_step = 5
                     st.rerun()
@@ -464,10 +469,11 @@ elif st.session_state.stage == 6:
             st.text_input("Combo (X5, 1, A)", key=f"in_combo_{st.session_state.key_combo}", on_change=combo_submit)
             focus_input()
 
-        # 4. Map Wait (Compact)
+        # 4. Map Wait
         elif st.session_state.scout_step == 4:
             st.markdown("##### 4. Map Input")
             st.info("👈 左のコートをクリックしてください")
+            focus_input() # ダメ押しでフォーカス（次に進んだときのため）
 
         # 5. Quality & Save
         elif st.session_state.scout_step == 5:
@@ -488,7 +494,7 @@ elif st.session_state.stage == 6:
             for q in qs: st.write(f"**{q['k']}**: {q['v']} ({q['d']})")
             st.write("**8**: My Pt (Force) / **9**: Op Pt (Force)")
             st.text_input("Choice", key=f"in_qual_{st.session_state.key_quality}", on_change=qual_submit)
-            focus_input()
+            focus_input() # ★ここもフォーカス
 
         st.markdown("</div>", unsafe_allow_html=True)
         if st.button("Reset Input"):
