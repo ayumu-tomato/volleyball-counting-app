@@ -13,7 +13,7 @@ import time
 # ==========================================
 # 1. 設定 & JS制御
 # ==========================================
-st.set_page_config(page_title="Volleyball Scouter Ver.4.1", layout="wide")
+st.set_page_config(page_title="Volleyball Scouter Ver.4.2", layout="wide")
 
 st.markdown("""
 <style>
@@ -32,53 +32,69 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# 自動フォーカス
-def focus_input():
+# ★自動フォーカス (最強版)
+# 指定したラベルを持つ入力欄が見つかるまで、繰り返しフォーカスを試みる
+def focus_input_target(target_label):
     ts = str(time.time())
     components.html(
         f"""
         <script>
-            setTimeout(function() {{
+            // ユニークID: {ts}
+            // ターゲットとなるラベル: "{target_label}"
+            
+            let attempts = 0;
+            const maxAttempts = 20; // 2秒間試行 (100ms * 20)
+            
+            const interval = setInterval(function() {{
                 const doc = window.parent.document;
                 const inputs = doc.querySelectorAll('input[type="text"]');
-                const targetLabels = [
-                    "Time", "Choice", "Skill Number", "Player Number", "Setter Number",
-                    "Combo", "Press Enter", "Set Number", "YouTube URL", "Player Name", "Libero Name", "Names (comma separated)"
-                ];
-                let found = false;
+                let targetElement = null;
+                
+                // 1. 指定されたラベルを持つ入力欄を探す
                 for (let i = 0; i < inputs.length; i++) {{
                     const label = inputs[i].getAttribute('aria-label');
-                    if (label && (label === "Choice" || targetLabels.includes(label))) {{
-                        inputs[i].focus();
-                        found = true;
-                        break; 
+                    if (label && label.includes("{target_label}")) {{
+                        targetElement = inputs[i];
+                        break;
                     }}
                 }}
-                if (!found && inputs.length > 0) {{ inputs[inputs.length - 1].focus(); }}
-            }}, 300);
-        </script>
-        """, height=0
-    )
-
-# ショートカット
-def inject_shortcuts():
-    components.html(
-        """
-        <script>
-            const doc = window.parent.document;
-            doc.addEventListener('keydown', function(e) {
-                if (e.shiftKey) {
-                    if (e.key === 'ArrowUp') {
-                        const buttons = Array.from(doc.querySelectorAll('button'));
+                
+                // 2. 見つからない場合、メインエリアにある最後の入力欄を狙う
+                // (サイドバー以外の最後の要素)
+                if (!targetElement && inputs.length > 0) {{
+                    targetElement = inputs[inputs.length - 1];
+                }}
+                
+                // 3. フォーカス実行
+                if (targetElement) {{
+                    targetElement.focus();
+                    // 確実にフォーカスされたか確認
+                    if (doc.activeElement === targetElement) {{
+                        // 成功したらループ終了... としたいが、
+                        // Streamlitの再描画で外れることがあるので、あえて数回は続ける
+                        // clearInterval(interval); 
+                    }}
+                }}
+                
+                attempts++;
+                if (attempts >= maxAttempts) clearInterval(interval);
+                
+            }}, 100); 
+            
+            // ショートカットキー (Shift+Arrow)
+            window.parent.document.addEventListener('keydown', function(e) {{
+                if (e.shiftKey) {{
+                    if (e.key === 'ArrowUp') {{
+                        const buttons = Array.from(window.parent.document.querySelectorAll('button'));
                         const target = buttons.find(el => el.innerText.includes('↑ My Pt'));
-                        if (target) { target.click(); e.preventDefault(); e.stopPropagation(); }
-                    } else if (e.key === 'ArrowDown') {
-                        const buttons = Array.from(doc.querySelectorAll('button'));
+                        if (target) {{ target.click(); e.preventDefault(); }}
+                    }} else if (e.key === 'ArrowDown') {{
+                        const buttons = Array.from(window.parent.document.querySelectorAll('button'));
                         const target = buttons.find(el => el.innerText.includes('↓ Op Pt'));
-                        if (target) { target.click(); e.preventDefault(); e.stopPropagation(); }
-                    }
-                }
-            });
+                        if (target) {{ target.click(); e.preventDefault(); }}
+                    }}
+                }}
+            }});
         </script>
         """, height=0
     )
@@ -91,8 +107,6 @@ defaults = {
 }
 for k, v in defaults.items():
     if k not in st.session_state: st.session_state[k] = v
-
-inject_shortcuts()
 
 # ==========================================
 # 2. ロジック関数
@@ -151,7 +165,6 @@ def rotate_team():
     r = st.session_state.rotation
     st.session_state.rotation = [r[-1]] + r[:-1]
 
-# ★修正箇所: 引数を winner だけにする
 def update_score(winner):
     if winner == 'my':
         st.session_state.score[0] += 1
@@ -189,14 +202,10 @@ def commit_record(quality, winner=None):
     if winner:
         update_score(winner)
     else:
-        # ★修正箇所: skillとqualityを判定して update_score('my' or 'op') を呼ぶ
         skill = curr.get('skill','')
-        if (skill in ['A','B','S'] and quality=='#') or (skill=='A' and quality=='T'):
-            update_score('my')
-        elif quality == '^':
-            update_score('op')
-        else:
-            st.toast("Saved.", icon="✅")
+        if (skill in ['A','B','S'] and quality=='#') or (skill=='A' and quality=='T'): update_score('my')
+        elif quality == '^': update_score('op')
+        else: st.toast("Saved.", icon="✅")
 
     st.session_state.points = []
     st.session_state.current_input_data = {}
@@ -217,7 +226,7 @@ if st.session_state.stage == 0:
             st.session_state.set_name = val
             st.session_state.stage = 1
     st.text_input("Set Number", key="input_set", on_change=set_entered)
-    focus_input()
+    focus_input_target("Set Number")
 
 # --- Stage 1: URL Input ---
 elif st.session_state.stage == 1:
@@ -228,13 +237,14 @@ elif st.session_state.stage == 1:
         st.session_state.roster_cursor = 0
         st.session_state.temp_roster = []
     st.text_input("YouTube URL", key="input_url", on_change=url_entered)
-    focus_input()
+    focus_input_target("YouTube URL")
 
 # --- Stage 2: Roster ---
 elif st.session_state.stage == 2:
     idx = st.session_state.roster_cursor
     pos_name = ["1 (Back-R)", "6 (Back-C)", "5 (Back-L)", "4 (Front-L)", "3 (Front-C)", "2 (Front-R)"][idx]
     st.markdown(f'<div class="instruction">Step 3: Lineup ({idx+1}/6) : {pos_name}</div>', unsafe_allow_html=True)
+    
     def player_entered():
         p_name = st.session_state.input_player_reg
         if p_name:
@@ -244,8 +254,9 @@ elif st.session_state.stage == 2:
             else:
                 st.session_state.stage = 3
         st.session_state.input_player_reg = ""
+
     st.text_input("Player Name", key="input_player_reg", on_change=player_entered)
-    focus_input()
+    focus_input_target("Player Name")
 
 # --- Stage 3: Confirm ---
 elif st.session_state.stage == 3:
@@ -272,7 +283,7 @@ elif st.session_state.stage == 3:
             st.session_state.roster_cursor = 0
             st.session_state.temp_roster = []
     st.text_input("Choice", key="input_confirm", on_change=confirm_choice)
-    focus_input()
+    focus_input_target("Choice")
 
 # --- Stage 4: Libero ---
 elif st.session_state.stage == 4:
@@ -282,7 +293,7 @@ elif st.session_state.stage == 4:
         st.session_state.liberos = [x.strip() for x in val.split(',')] if val else []
         st.session_state.stage = 5
     st.text_input("Names (comma separated)", key="input_libero", on_change=libero_entered)
-    focus_input()
+    focus_input_target("Names")
 
 # --- Stage 5: Phase ---
 elif st.session_state.stage == 5:
@@ -293,7 +304,7 @@ elif st.session_state.stage == 5:
         if val == "1": st.session_state.phase = 'S'; st.session_state.stage = 6
         elif val == "2": st.session_state.phase = 'R'; st.session_state.stage = 6
     st.text_input("Choice", key="input_phase", on_change=phase_entered)
-    focus_input()
+    focus_input_target("Choice")
 
 # ==========================================
 # --- Stage 6: MAIN SCOUTING ---
@@ -346,7 +357,7 @@ elif st.session_state.stage == 6:
                 if len(st.session_state.points) < 2:
                     st.session_state.points.append(p)
                     if len(st.session_state.points) == 2:
-                        st.session_state.scout_step = 5
+                        st.session_state.scout_step = 5 # 次のステップ(Quality)へ
                     st.rerun()
                 else:
                     st.session_state.points = [p]
@@ -366,7 +377,7 @@ elif st.session_state.stage == 6:
                 st.session_state.current_input_data['time'] = t
                 st.session_state.scout_step = 1
             st.text_input("Time (ex 0513)", key=f"in_time_{st.session_state.key_time}", on_change=time_submit)
-            focus_input()
+            focus_input_target("Time")
 
         # 2. Skill
         elif st.session_state.scout_step == 1:
@@ -391,7 +402,7 @@ elif st.session_state.stage == 6:
                     else:
                         st.session_state.scout_step = 2
             st.text_input("Choice", key=f"in_skill_{st.session_state.key_skill}", on_change=skill_submit)
-            focus_input()
+            focus_input_target("Choice")
 
         # 3. Player
         elif st.session_state.scout_step == 2:
@@ -411,7 +422,7 @@ elif st.session_state.stage == 6:
                             st.session_state.scout_step = 4
                 except: pass
             st.text_input("Choice", key=f"in_player_{st.session_state.key_player}", on_change=player_submit)
-            focus_input()
+            focus_input_target("Choice")
 
         # 3.5 Setter
         elif st.session_state.scout_step == 25:
@@ -433,7 +444,7 @@ elif st.session_state.stage == 6:
                         st.session_state.scout_step = 3
                 except: pass
             st.text_input("Choice", key=f"in_setter_{st.session_state.key_setter}", on_change=setter_submit)
-            focus_input()
+            focus_input_target("Choice")
 
         # 3.8 Combo
         elif st.session_state.scout_step == 3:
@@ -443,14 +454,15 @@ elif st.session_state.stage == 6:
                 st.session_state.current_input_data['combo'] = st.session_state[k]
                 st.session_state.scout_step = 4
             st.text_input("Combo (X5, 1, A)", key=f"in_combo_{st.session_state.key_combo}", on_change=combo_submit)
-            focus_input()
+            focus_input_target("Combo")
 
         # 4. Map Wait
         elif st.session_state.scout_step == 4:
             st.markdown("##### 4. Map Input")
-            st.info("👈 左のコートをクリックしてください")
+            st.info("👈 左のコートを2回クリックしてください")
+            # クリック後に自動遷移するため、ここはInputなし
 
-        # 5. Quality
+        # 5. Quality & Save
         elif st.session_state.scout_step == 5:
             st.markdown("##### 5. Quality")
             qs = [{"k":"1","v":"#","d":"Perf"},{"k":"2","v":"\"","d":"Good"},{"k":"3","v":"!","d":"OK"},{"k":"4","v":"-","d":"Poor"},{"k":"5","v":"^","d":"Err"},{"k":"6","v":"T","d":"BlockOut"}]
@@ -468,7 +480,7 @@ elif st.session_state.stage == 6:
             for q in qs: st.write(f"**{q['k']}**: {q['v']} ({q['d']})")
             st.write("**8**: My Pt / **9**: Op Pt")
             st.text_input("Choice", key=f"in_qual_{st.session_state.key_quality}", on_change=qual_submit)
-            focus_input()
+            focus_input_target("Choice")
 
         st.markdown("</div>", unsafe_allow_html=True)
         if st.button("Reset Input"):
