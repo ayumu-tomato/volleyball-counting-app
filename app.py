@@ -13,7 +13,7 @@ import time
 # ==========================================
 # 1. 設定 & JS制御
 # ==========================================
-st.set_page_config(page_title="Volleyball Scouter Ver.4.4", layout="wide")
+st.set_page_config(page_title="Volleyball Scouter Ver.4.5", layout="wide")
 
 st.markdown("""
 <style>
@@ -32,35 +32,26 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# ★自動フォーカス (ターゲット指定＆連打版)
+# 自動フォーカス
 def focus_target(label_text):
     ts = str(time.time())
     components.html(
         f"""
         <script>
-            // Unique ID: {ts}
-            // Target Label: {label_text}
-            
             let attempts = 0;
-            // 0.5秒間、繰り返しフォーカスを試みる (描画遅延対策)
             const interval = setInterval(function() {{
                 const inputs = window.parent.document.querySelectorAll('input[type="text"]');
                 let target = null;
-                
                 for (let i = 0; i < inputs.length; i++) {{
                     const ariaLabel = inputs[i].getAttribute('aria-label');
                     if (ariaLabel && ariaLabel.includes("{label_text}")) {{
-                        target = inputs[i];
-                        break;
+                        target = inputs[i]; break;
                     }}
                 }}
-
-                if (target) {{
-                    target.focus();
-                }}
-                
+                if (!target && inputs.length > 0) target = inputs[inputs.length - 1];
+                if (target) target.focus();
                 attempts++;
-                if (attempts > 10) clearInterval(interval); // 50ms * 10 = 500ms
+                if (attempts > 10) clearInterval(interval);
             }}, 50);
         </script>
         """, height=0
@@ -93,8 +84,7 @@ defaults = {
     'stage': 0, 'roster_cursor': 0, 'temp_roster': [], 'scout_step': 0,
     'set_name': '1', 'video_url': '', 'liberos': [], 'rotation': [], 'score': [0, 0], 'phase': 'R',
     'current_input_data': {}, 'data_log': [], 'points': [], 'setter_counts': {},
-    'key_time': 0, 'key_skill': 0, 'key_player': 0, 'key_setter': 0, 'key_combo': 0, 'key_quality': 0, 
-    'key_map': 0 # ★重要: マップリセット用
+    'key_time': 0, 'key_skill': 0, 'key_player': 0, 'key_setter': 0, 'key_combo': 0, 'key_quality': 0, 'key_map': 0
 }
 for k, v in defaults.items():
     if k not in st.session_state: st.session_state[k] = v
@@ -158,26 +148,31 @@ def rotate_team():
     r = st.session_state.rotation
     st.session_state.rotation = [r[-1]] + r[:-1]
 
+# ★修正: スコア更新ロジック
 def update_score(winner):
+    current_phase = st.session_state.phase
+    
     if winner == 'my':
         st.session_state.score[0] += 1
+        
+        # レセプション(R)からの得点ならローテを回す (Sideout)
+        if current_phase == 'R':
+            rotate_team()
+            st.toast("Sideout! Point & Rotated.", icon="⭕")
+        else:
+            # サーブ(S)からの得点なら回さない (Break)
+            st.toast("Break Point! (No Rot)", icon="⭕")
+            
         st.session_state.phase = 'S'
-        rotate_team()
-        st.toast("My Point! Rotated.", icon="⭕")
+        
     elif winner == 'op':
         st.session_state.score[1] += 1
         st.session_state.phase = 'R'
         st.toast("Opponent Point.", icon="❌")
 
 def reset_input_keys():
-    # 全ての入力フォームのキーを更新（中身を空にする＆再生成）
-    st.session_state.key_time += 1
-    st.session_state.key_skill += 1
-    st.session_state.key_player += 1
-    st.session_state.key_setter += 1
-    st.session_state.key_combo += 1
-    st.session_state.key_quality += 1
-    st.session_state.key_map += 1 # ★マップもこれでリセット
+    for k in ['key_time', 'key_skill', 'key_player', 'key_setter', 'key_combo', 'key_quality', 'key_map']:
+        st.session_state[k] += 1
 
 def commit_record(quality, winner=None):
     curr = st.session_state.current_input_data
@@ -202,9 +197,14 @@ def commit_record(quality, winner=None):
         update_score(winner)
     else:
         skill = curr.get('skill','')
-        if (skill in ['A','B','S'] and quality=='#') or (skill=='A' and quality=='T'): update_score('my')
-        elif quality == '^': update_score('op')
-        else: st.toast("Saved.", icon="✅")
+        # 自動判定でMy Pointの場合
+        if (skill in ['A','B','S'] and quality=='#') or (skill=='A' and quality=='T'):
+            update_score('my')
+        # 自動判定でOp Pointの場合
+        elif quality == '^':
+            update_score('op')
+        else:
+            st.toast("Saved.", icon="✅")
 
     st.session_state.points = []
     st.session_state.current_input_data = {}
@@ -310,9 +310,7 @@ elif st.session_state.stage == 5:
 # ==========================================
 elif st.session_state.stage == 6:
     
-    # --- Header ---
     c_left, c_mid, c_right = st.columns([0.8, 1.2, 1.0])
-    
     with c_left:
         st.markdown("""
         <div class="legend-box">
@@ -320,13 +318,11 @@ elif st.session_state.stage == 6:
         <b>S/A:</b> #:Pt, ":Good, !:OK, ^:Err
         </div>
         """, unsafe_allow_html=True)
-        
     with c_mid:
         st.markdown(f'<div class="score-board">{st.session_state.score[0]}-{st.session_state.score[1]} ({st.session_state.phase})</div>', unsafe_allow_html=True)
         b1, b2 = st.columns(2)
-        if b1.button("↑ My Pt (Shift+↑)"): commit_record("#", winner='my')
-        if b2.button("↓ Op Pt (Shift+↓)"): commit_record("^", winner='op')
-
+        if b1.button("↑ My Pt (Shift+↑)"): update_score('my'); st.rerun()
+        if b2.button("↓ Op Pt (Shift+↓)"): update_score('op'); st.rerun()
     with c_right:
         r = st.session_state.rotation
         st.markdown(f"""
@@ -344,12 +340,9 @@ elif st.session_state.stage == 6:
 
     col_map, col_cmd = st.columns([0.8, 1.5])
     
-    # --- Map ---
     with col_map:
         st.markdown("**Map**")
         court_img = create_court_img(st.session_state.points)
-        
-        # ★重要: keyに st.session_state.key_map を含めることで、リセット時に強制再描画させる
         val = streamlit_image_coordinates(
             court_img, 
             key=f"main_court_{st.session_state.key_map}", 
@@ -362,18 +355,16 @@ elif st.session_state.stage == 6:
                 if len(st.session_state.points) < 2:
                     st.session_state.points.append(p)
                     if len(st.session_state.points) == 2:
-                        st.session_state.scout_step = 5 # Next
+                        st.session_state.scout_step = 5
                     st.rerun()
                 else:
                     st.session_state.points = [p]
                     st.rerun()
-        st.caption("Startをタップ" if len(st.session_state.points)==0 else ("Endをタップ" if len(st.session_state.points)==1 else "Done"))
+        st.caption("Status: " + ("Start" if len(st.session_state.points)==0 else ("End" if len(st.session_state.points)==1 else "Done")))
 
-    # --- Input Wizard ---
     with col_cmd:
         st.markdown('<div class="input-area">', unsafe_allow_html=True)
         
-        # 1. Time
         if st.session_state.scout_step == 0:
             st.markdown("##### 1. Time")
             def time_submit():
@@ -384,12 +375,10 @@ elif st.session_state.stage == 6:
             st.text_input("Time (ex 0513)", key=f"in_time_{st.session_state.key_time}", on_change=time_submit)
             focus_target("Time")
 
-        # 2. Skill
         elif st.session_state.scout_step == 1:
             st.markdown("##### 2. Skill")
             skills = {"1":"S (Serve)", "2":"R (Reception)", "3":"A (Attack)", "4":"B (Block)", "5":"D (Dig)", "6":"E (Set)"}
             for k,v in skills.items(): st.write(f"**{k}**: {v}")
-            
             def skill_submit():
                 k = f"in_skill_{st.session_state.key_skill}"
                 val = st.session_state[k]
@@ -402,41 +391,33 @@ elif st.session_state.stage == 6:
                         st.session_state.current_input_data['setter'] = ""
                         st.session_state.current_input_data['combo'] = ""
                         st.session_state.scout_step = 4
-                    elif skill == 'A':
-                        st.session_state.scout_step = 2
-                    else:
-                        st.session_state.scout_step = 2
+                    elif skill == 'A': st.session_state.scout_step = 2
+                    else: st.session_state.scout_step = 2
             st.text_input("Choice", key=f"in_skill_{st.session_state.key_skill}", on_change=skill_submit)
             focus_target("Choice")
 
-        # 3. Player
         elif st.session_state.scout_step == 2:
             st.markdown("##### 3. Player")
             cand = st.session_state.rotation + st.session_state.liberos
             for i, p in enumerate(cand): st.write(f"**{i+1}**: {p}")
-            
             def player_submit():
                 k = f"in_player_{st.session_state.key_player}"
                 try:
                     idx = int(st.session_state[k]) - 1
                     if 0 <= idx < len(cand):
                         st.session_state.current_input_data['player'] = cand[idx]
-                        if st.session_state.current_input_data['skill'] == 'A':
-                            st.session_state.scout_step = 25
-                        else:
-                            st.session_state.scout_step = 4
+                        if st.session_state.current_input_data['skill'] == 'A': st.session_state.scout_step = 25
+                        else: st.session_state.scout_step = 4
                 except: pass
             st.text_input("Choice", key=f"in_player_{st.session_state.key_player}", on_change=player_submit)
             focus_target("Choice")
 
-        # 3.5 Setter
         elif st.session_state.scout_step == 25:
             st.markdown("##### 3.5 Setter")
             all_m = st.session_state.rotation + st.session_state.liberos
             def skey(n): return st.session_state.setter_counts.get(n, 0)
             setters = sorted(all_m, key=skey, reverse=True) + ["Direct/Two"]
             for i, s in enumerate(setters): st.write(f"**{i+1}**: {s}")
-            
             def setter_submit():
                 k = f"in_setter_{st.session_state.key_setter}"
                 try:
@@ -444,14 +425,12 @@ elif st.session_state.stage == 6:
                     if 0 <= idx < len(setters):
                         s_name = setters[idx]
                         st.session_state.current_input_data['setter'] = s_name
-                        if s_name != "Direct/Two":
-                            st.session_state.setter_counts[s_name] = st.session_state.setter_counts.get(s_name, 0) + 1
+                        if s_name != "Direct/Two": st.session_state.setter_counts[s_name] = st.session_state.setter_counts.get(s_name, 0) + 1
                         st.session_state.scout_step = 3
                 except: pass
             st.text_input("Choice", key=f"in_setter_{st.session_state.key_setter}", on_change=setter_submit)
             focus_target("Choice")
 
-        # 3.8 Combo
         elif st.session_state.scout_step == 3:
             st.markdown("##### 3.8 Combo")
             def combo_submit():
@@ -461,27 +440,20 @@ elif st.session_state.stage == 6:
             st.text_input("Combo (X5, 1, A)", key=f"in_combo_{st.session_state.key_combo}", on_change=combo_submit)
             focus_target("Combo")
 
-        # 4. Map Wait
         elif st.session_state.scout_step == 4:
             st.markdown("##### 4. Map Input")
-            st.info("👈 左のコートを2回クリックしてください")
-            # フォーカス不要（クリック待機）
+            st.info("👈 左のコートをクリック")
 
-        # 5. Quality
         elif st.session_state.scout_step == 5:
             st.markdown("##### 5. Quality")
             qs = [{"k":"1","v":"#","d":"Perf"},{"k":"2","v":"\"","d":"Good"},{"k":"3","v":"!","d":"OK"},{"k":"4","v":"-","d":"Poor"},{"k":"5","v":"^","d":"Err"},{"k":"6","v":"T","d":"BlockOut"}]
-            
             def qual_submit():
                 k_q = f"in_qual_{st.session_state.key_quality}"
                 val = st.session_state[k_q]
                 q_map = {q['k']: q['v'] for q in qs}
-                
                 if val == '8': commit_record("#", winner='my')
                 elif val == '9': commit_record("^", winner='op')
-                elif val in q_map:
-                    commit_record(q_map[val])
-            
+                elif val in q_map: commit_record(q_map[val])
             for q in qs: st.write(f"**{q['k']}**: {q['v']} ({q['d']})")
             st.write("**8**: My Pt / **9**: Op Pt")
             st.text_input("Choice", key=f"in_qual_{st.session_state.key_quality}", on_change=qual_submit)
@@ -493,24 +465,24 @@ elif st.session_state.stage == 6:
             st.session_state.points = []
             st.rerun()
 
-    # --- Data Output ---
     st.markdown("### Data")
     if len(st.session_state.data_log) > 0:
         df = pd.DataFrame(st.session_state.data_log)
         st.dataframe(df.iloc[::-1], height=150)
-        
         c_sub, c_dl = st.columns(2)
         with c_sub:
             with st.expander("Sub / Libero"):
                 out_p = st.selectbox("OUT", st.session_state.rotation)
                 in_p = st.text_input("IN Name")
                 if st.button("Change"):
-                    if in_p: substitute_player(out_p, in_p); st.rerun()
+                    if in_p: 
+                        idx = st.session_state.rotation.index(out_p)
+                        st.session_state.rotation[idx] = in_p
+                        st.rerun()
                 lib_t = st.text_input("Liberos", ",".join(st.session_state.liberos))
                 if st.button("Update"):
                     st.session_state.liberos = [x.strip() for x in lib_t.split(',')]
                     st.rerun()
-
         with c_dl:
             if st.button("FINISH (Download)"):
                 buf = io.BytesIO()
