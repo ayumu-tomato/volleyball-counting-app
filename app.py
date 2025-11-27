@@ -10,9 +10,9 @@ import datetime
 import xlsxwriter
 
 # ==========================================
-# 1. 設定 & JS制御 (ショートカット追加)
+# 1. 設定 & JS制御
 # ==========================================
-st.set_page_config(page_title="Volleyball Scouter Ver.3.5", layout="wide")
+st.set_page_config(page_title="Volleyball Scouter Ver.3.6", layout="wide")
 
 st.markdown("""
 <style>
@@ -26,44 +26,42 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# ★ キーボードショートカット & 自動フォーカス用 JS ★
-def inject_js():
+# ★自動フォーカス (修正版)
+# 指定したラベル(aria-label)を持つ入力欄を探してフォーカスする
+def focus_input():
     components.html(
         """
         <script>
-            const doc = window.parent.document;
-            
-            // 1. 自動フォーカス (入力欄があればフォーカス)
             setTimeout(function() {
+                const doc = window.parent.document;
                 const inputs = doc.querySelectorAll('input[type="text"]');
-                if (inputs.length > 0) { inputs[inputs.length - 1].focus(); }
-            }, 300);
-
-            // 2. キーボードショートカット (Shift + Arrow)
-            doc.addEventListener('keydown', function(e) {
-                if (e.shiftKey) {
-                    if (e.key === 'ArrowUp') {
-                        // My Pointボタンを探してクリック
-                        const buttons = Array.from(doc.querySelectorAll('button'));
-                        const target = buttons.find(el => el.innerText.includes('↑ My Pt'));
-                        if (target) {
-                            target.click();
-                            e.preventDefault(); // スクロール防止
-                        }
-                    } else if (e.key === 'ArrowDown') {
-                        // Op Pointボタンを探してクリック
-                        const buttons = Array.from(doc.querySelectorAll('button'));
-                        const target = buttons.find(el => el.innerText.includes('↓ Op Pt'));
-                        if (target) {
-                            target.click();
-                            e.preventDefault();
-                        }
+                
+                // フォーカスすべきラベルのリスト (スカウティング入力用)
+                const targetLabels = [
+                    "Time", "Time (例: 0513 -> 05:13)", 
+                    "Choice", "Skill Number", "Player Number", "Setter Number",
+                    "Combo", "Press Enter",
+                    "Set Number", "YouTube URL", "Player Name", "Libero Name", "Names (comma separated)"
+                ];
+                
+                let found = false;
+                // 後ろから探すのではなく、ターゲットリストに一致するものを探す
+                for (let i = 0; i < inputs.length; i++) {
+                    const label = inputs[i].getAttribute('aria-label');
+                    if (targetLabels.includes(label)) {
+                        inputs[i].focus();
+                        found = true;
+                        break; // 見つかったらそこで終了（下にある選手交代などの入力欄を無視）
                     }
                 }
-            });
+                
+                // 見つからなければ、従来の「最後の入力欄」にフォールバック（初期設定画面など）
+                if (!found && inputs.length > 0) {
+                    inputs[inputs.length - 1].focus();
+                }
+            }, 300);
         </script>
-        """,
-        height=0
+        """, height=0
     )
 
 # セッション初期化
@@ -71,13 +69,11 @@ defaults = {
     'stage': 0, 'roster_cursor': 0, 'temp_roster': [], 'scout_step': 0,
     'set_name': '1', 'video_url': '', 'liberos': [], 'rotation': [], 'score': [0, 0], 'phase': 'R',
     'current_input_data': {}, 'data_log': [], 'points': [], 'setter_counts': {},
-    'key_time': 0, 'key_skill': 0, 'key_player': 0, 'key_setter': 0, 'key_combo': 0, 'key_quality': 0
+    # 入力リセット用キー
+    'key_time': 0, 'key_skill': 0, 'key_player': 0, 'key_setter': 0, 'key_combo': 0, 'key_quality': 0, 'key_map': 0
 }
 for k, v in defaults.items():
     if k not in st.session_state: st.session_state[k] = v
-
-# 毎回の描画時にJSを注入
-inject_js()
 
 # ==========================================
 # 2. ロジック関数
@@ -108,7 +104,7 @@ def create_court_img(points):
     ax.plot([0,9], [9,9], c='red', lw=3)
     ax.plot([0,9], [6,6], c='black', lw=1); ax.plot([0,9], [12,12], c='black', lw=1)
     
-    # 相手コートのエリアガイド
+    # 相手コートガイド
     ax.plot([0,9], [13.5, 13.5], c='gray', ls=':', lw=0.5)
     ax.plot([3,3], [9,18], c='gray', ls=':', lw=0.5)
     ax.plot([6,6], [9,18], c='gray', ls=':', lw=0.5)
@@ -167,6 +163,7 @@ def reset_input_keys():
     st.session_state.key_setter += 1
     st.session_state.key_combo += 1
     st.session_state.key_quality += 1
+    st.session_state.key_map += 1
 
 # ==========================================
 # 3. アプリ進行フロー
@@ -181,6 +178,7 @@ if st.session_state.stage == 0:
             st.session_state.set_name = val
             st.session_state.stage = 1
     st.text_input("Set Number", key="input_set", on_change=set_entered)
+    focus_input()
 
 # --- Stage 1: URL Input ---
 elif st.session_state.stage == 1:
@@ -191,6 +189,7 @@ elif st.session_state.stage == 1:
         st.session_state.roster_cursor = 0
         st.session_state.temp_roster = []
     st.text_input("YouTube URL", key="input_url", on_change=url_entered)
+    focus_input()
 
 # --- Stage 2: Roster ---
 elif st.session_state.stage == 2:
@@ -211,6 +210,7 @@ elif st.session_state.stage == 2:
 
     st.text_input("Player Name", key="input_player_reg", on_change=player_entered)
     if st.session_state.temp_roster: st.write("入力済み:", st.session_state.temp_roster)
+    focus_input()
 
 # --- Stage 3: Confirm ---
 elif st.session_state.stage == 3:
@@ -238,6 +238,7 @@ elif st.session_state.stage == 3:
             st.session_state.roster_cursor = 0
             st.session_state.temp_roster = []
     st.text_input("Choice", key="input_confirm", on_change=confirm_choice)
+    focus_input()
 
 # --- Stage 4: Libero ---
 elif st.session_state.stage == 4:
@@ -247,6 +248,7 @@ elif st.session_state.stage == 4:
         st.session_state.liberos = [x.strip() for x in val.split(',')] if val else []
         st.session_state.stage = 5
     st.text_input("Names (comma separated)", key="input_libero", on_change=libero_entered)
+    focus_input()
 
 # --- Stage 5: Phase ---
 elif st.session_state.stage == 5:
@@ -257,6 +259,7 @@ elif st.session_state.stage == 5:
         if val == "1": st.session_state.phase = 'S'; st.session_state.stage = 6
         elif val == "2": st.session_state.phase = 'R'; st.session_state.stage = 6
     st.text_input("Choice", key="input_phase", on_change=phase_entered)
+    focus_input()
 
 # ==========================================
 # --- Stage 6: MAIN SCOUTING ---
@@ -300,7 +303,6 @@ elif st.session_state.stage == 6:
         
         if val:
             p = (val['x'], val['y'])
-            # 連続クリックロジック
             if not st.session_state.points or st.session_state.points[-1] != p:
                 if len(st.session_state.points) < 2:
                     st.session_state.points.append(p)
@@ -311,7 +313,6 @@ elif st.session_state.stage == 6:
                 else:
                     st.session_state.points = [p]
                     st.rerun()
-                    
         st.caption("Startをタップ" if len(st.session_state.points)==0 else ("Endをタップ" if len(st.session_state.points)==1 else "OK (Next)"))
 
     # --- Input Wizard ---
@@ -326,7 +327,9 @@ elif st.session_state.stage == 6:
                 t = format_time(st.session_state[k])
                 st.session_state.current_input_data['time'] = t
                 st.session_state.scout_step = 1
+            # labelをJS側で認識させる
             st.text_input("Time", key=f"in_time_{st.session_state.key_time}", on_change=time_submit)
+            focus_input()
 
         # 2. Skill
         elif st.session_state.scout_step == 1:
@@ -351,6 +354,7 @@ elif st.session_state.stage == 6:
                     else:
                         st.session_state.scout_step = 2
             st.text_input("Choice", key=f"in_skill_{st.session_state.key_skill}", on_change=skill_submit)
+            focus_input()
 
         # 3. Player
         elif st.session_state.scout_step == 2:
@@ -370,6 +374,7 @@ elif st.session_state.stage == 6:
                             st.session_state.scout_step = 4 # Map
                 except: pass
             st.text_input("Choice", key=f"in_player_{st.session_state.key_player}", on_change=player_submit)
+            focus_input()
 
         # 3.5 Setter
         elif st.session_state.scout_step == 25:
@@ -391,6 +396,7 @@ elif st.session_state.stage == 6:
                         st.session_state.scout_step = 3 # Combo
                 except: pass
             st.text_input("Choice", key=f"in_setter_{st.session_state.key_setter}", on_change=setter_submit)
+            focus_input()
 
         # 3.8 Combo
         elif st.session_state.scout_step == 3:
@@ -400,11 +406,13 @@ elif st.session_state.stage == 6:
                 st.session_state.current_input_data['combo'] = st.session_state[k]
                 st.session_state.scout_step = 4
             st.text_input("Combo", key=f"in_combo_{st.session_state.key_combo}", on_change=combo_submit)
+            focus_input()
 
-        # 4. Map Wait (スキップ)
+        # 4. Map Wait (★自動化のためスキップ表示のみ)
         elif st.session_state.scout_step == 4:
             st.markdown("##### 4. Map Input")
-            st.info("👈 左のコートを2回クリックしてください")
+            st.info("👈 左のコートを2回クリックしてください (Start -> End)")
+            # 2回クリックされると自動でStep5へ飛ぶため、ここは待ち状態
 
         # 5. Quality & Save
         elif st.session_state.scout_step == 5:
@@ -441,10 +449,11 @@ elif st.session_state.stage == 6:
                     st.session_state.points = []
                     st.session_state.current_input_data = {}
                     st.session_state.scout_step = 0
-                    reset_input_keys()
+                    reset_input_keys() # ID更新してクリア
             
             for q in qs: st.write(f"**{q['k']}**: {q['v']} ({q['d']})")
             st.text_input("Choice", key=f"in_qual_{st.session_state.key_quality}", on_change=qual_submit)
+            focus_input()
 
         st.markdown("</div>", unsafe_allow_html=True)
         if st.button("Reset Input"):
